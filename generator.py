@@ -40,49 +40,39 @@ def extract_video_id(url):
         raise ValueError("Invalid YouTube URL")
     return match.group(1)
 
-def get_transcript(video_id):
-    print(f"[*] Fetching transcript for video: {video_id}...")
-    t = YouTubeTranscriptApi()
-    transcript_list = t.list(video_id)
-    try:
-        tr = transcript_list.find_transcript(['hi', 'en'])
-    except Exception:
-        tr = list(transcript_list)[0]
-    snippets = tr.fetch()
-    print(f"[+] Retrieved {len(snippets)} caption segments.")
-    return snippets
-
-def analyze_best_clip(snippets):
+def analyze_best_clip_direct_gemini(url):
+    """Directly asks Gemini to watch and analyze the YouTube video URL without getting IP blocked!"""
+    print(f"[*] Asking Gemini Multimodal AI to watch and analyze YouTube video directly...")
     client = get_client()
-    print("[*] Asking Gemini AI to analyze transcript and select the single best viral clip...")
-    transcript_text = "\n".join([f"{s.start:.1f} - {s.start+s.duration:.1f}: {s.text}" for s in snippets])
     
-    prompt = f"""
-You are a viral short-form video creator and editor specializing in YouTube Shorts, Instagram Reels, and TikTok.
-Analyze the following timestamped video transcript.
+    prompt = """
+You are a viral short-form video creator specializing in YouTube Shorts, TikTok, and Instagram Reels.
+Watch this YouTube video and find the SINGLE BEST, most viral, high-retention highlight segment between 30 and 55 seconds.
 
-Select the SINGLE BEST, highest retention clip between 30 and 55 seconds.
-Requirements:
-1. Hook: Starts with an intense, curious, or emotional hook immediately.
-2. Value/Payoff: Has a clear, fascinating story or explanation.
+Criteria:
+1. Instant Hook: Starts with an intense, curious, or emotional hook immediately.
+2. Value/Payoff: Has a clear, fascinating story, visual action, or explanation.
 3. Natural Ending: Complete thought without an abrupt mid-sentence cutoff.
 4. Duration: Between 25.0 and 55.0 seconds.
 
-Return strictly a JSON object with this exact structure (no markdown fences):
-{{
-  "start_time": <start time in seconds as float>,
-  "end_time": <end time in seconds as float>,
+Return strictly a JSON object with this exact structure (no markdown fences, pure JSON):
+{
+  "start_time": <start time in seconds as float, e.g. 124.5>,
+  "end_time": <end time in seconds as float, e.g. 165.0>,
   "title": "Short catchy title (4-7 words)",
   "caption": "Viral post caption with relevant hashtags",
   "reason": "Why this clip will hook viewers"
-}}
-
-Transcript:
-{transcript_text}
+}
 """
     response = client.models.generate_content(
         model="gemini-3.6-flash",
-        contents=prompt
+        contents=[
+            genai.types.Part.from_uri(
+                file_uri=url,
+                mime_type="video/*"
+            ),
+            prompt
+        ]
     )
     raw = response.text.strip()
     raw = re.sub(r"^```json\s*", "", raw)
@@ -90,7 +80,7 @@ Transcript:
     raw = re.sub(r"\s*```$", "", raw)
     
     clip_meta = json.loads(raw)
-    print(f"[+] Best Clip Selected: {clip_meta['title']}")
+    print(f"[+] Best Clip Selected by Gemini: {clip_meta['title']}")
     print(f"    Time: {clip_meta['start_time']}s -> {clip_meta['end_time']}s (Duration: {clip_meta['end_time'] - clip_meta['start_time']:.1f}s)")
     return clip_meta
 
@@ -141,8 +131,9 @@ def cut_and_convert_to_vertical(input_video, start_time, duration, output_path):
 
 def main(url):
     video_id = extract_video_id(url)
-    snippets = get_transcript(video_id)
-    clip_info = analyze_best_clip(snippets)
+    
+    # Analyze video directly with Gemini AI (bypasses YouTube IP blocking completely!)
+    clip_info = analyze_best_clip_direct_gemini(url)
     
     start_time = float(clip_info['start_time'])
     end_time = float(clip_info['end_time'])
@@ -160,5 +151,5 @@ def main(url):
     return out_clip_path, meta_path, clip_info
 
 if __name__ == "__main__":
-    test_url = sys.argv[1] if len(sys.argv) > 1 else "https://www.youtube.com/watch?v=xQ3lxbRGgLY"
+    test_url = sys.argv[1] if len(sys.argv) > 1 else "https://www.youtube.com/watch?v=bcNDKu8kuQ0"
     main(test_url)
