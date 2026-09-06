@@ -5,7 +5,6 @@ sys.stdout.reconfigure(encoding='utf-8')
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
-# Try streamlit secrets first (for Cloud), fallback to os.getenv (for Local)
 def get_secret(key, default=None):
     try:
         import streamlit as st
@@ -20,8 +19,31 @@ CLIENT_SECRET = get_secret("TIKTOK_CLIENT_SECRET")
 REDIRECT_URI = get_secret("TIKTOK_REDIRECT_URI", "https://example.com/callback")
 TOKEN_FILE = os.path.join(BASE_DIR, "tiktok_tokens.json")
 
+def get_access_token():
+    # Check Streamlit session state first (for Cloud persistent session)
+    try:
+        import streamlit as st
+        if "tiktok_access_token" in st.session_state and st.session_state["tiktok_access_token"]:
+            return st.session_state["tiktok_access_token"]
+        if hasattr(st, "secrets") and "TIKTOK_ACCESS_TOKEN" in st.secrets:
+            return st.secrets["TIKTOK_ACCESS_TOKEN"]
+    except Exception:
+        pass
+        
+    # Check local token file
+    if os.path.exists(TOKEN_FILE):
+        try:
+            with open(TOKEN_FILE, "r", encoding="utf-8") as f:
+                d = json.load(f)
+                return d.get("access_token")
+        except Exception:
+            pass
+    return None
+
+def is_authorized():
+    return get_access_token() is not None
+
 def get_auth_url():
-    """Generates the authorization link for user to log in and authorize the app."""
     key = get_secret("TIKTOK_CLIENT_KEY")
     redirect = get_secret("TIKTOK_REDIRECT_URI", "https://example.com/callback")
     scope = "user.info.basic,video.upload,video.publish"
@@ -36,7 +58,6 @@ def get_auth_url():
     return auth_url
 
 def exchange_code_for_token(code):
-    """Exchanges authorization code from redirect URL for an access token."""
     key = get_secret("TIKTOK_CLIENT_KEY")
     secret = get_secret("TIKTOK_CLIENT_SECRET")
     redirect = get_secret("TIKTOK_REDIRECT_URI", "https://example.com/callback")
@@ -53,21 +74,23 @@ def exchange_code_for_token(code):
     resp = requests.post(url, headers=headers, data=data)
     res_json = resp.json()
     if "access_token" in res_json:
+        token = res_json["access_token"]
+        try:
+            import streamlit as st
+            st.session_state["tiktok_access_token"] = token
+        except Exception:
+            pass
         with open(TOKEN_FILE, "w", encoding="utf-8") as f:
             json.dump(res_json, f, indent=2)
-        return True, "Successfully authorized and saved token!"
+        return True, "Successfully authorized and linked TikTok!", token
     else:
-        return False, f"Auth Error: {res_json}"
+        return False, f"Auth Error: {res_json}", None
 
 def upload_video_to_tiktok(video_path, caption):
-    """Uploads video using TikTok Content Posting Direct API."""
-    if not os.path.exists(TOKEN_FILE):
+    access_token = get_access_token()
+    if not access_token:
         return False, "TikTok account not authorized yet. Please authorize first!"
-    
-    with open(TOKEN_FILE, "r", encoding="utf-8") as f:
-        token_data = json.load(f)
-    
-    access_token = token_data.get("access_token")
+        
     video_size = os.path.getsize(video_path)
     
     init_url = "https://open.tiktokapis.com/v2/post/publish/video/init/"

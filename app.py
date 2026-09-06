@@ -14,24 +14,26 @@ CLIPS_DIR = os.path.join(BASE_DIR, "clips")
 # --- SIDEBAR TIKTOK AUTHENTICATION ---
 with st.sidebar:
     st.header("🎵 TikTok Integration")
-    token_file = os.path.join(BASE_DIR, "tiktok_tokens.json")
     
-    if os.path.exists(token_file):
+    if tiktok_uploader.is_authorized():
         st.success("✅ TikTok Account Linked!")
         if st.button("🔄 Re-authenticate / Switch Account"):
-            os.remove(token_file)
+            if "tiktok_access_token" in st.session_state:
+                del st.session_state["tiktok_access_token"]
+            token_file = os.path.join(BASE_DIR, "tiktok_tokens.json")
+            if os.path.exists(token_file):
+                os.remove(token_file)
             st.rerun()
     else:
         st.warning("⚠️ TikTok not linked yet.")
         auth_url = tiktok_uploader.get_auth_url()
         st.markdown(f"[👉 **Click here to Authorize TikTok**]({auth_url})")
-        st.info("After authorizing, you will be redirected to an address starting with:\n`https://example.com/callback?code=...`\n\n**Paste the FULL redirected URL** below:")
+        st.info("After authorizing, paste the entire redirected URL (starting with `https://example.com/callback?code=...`) below:")
         
-        user_input = st.text_input("Paste Redirected URL or Code:")
+        user_input = st.text_input("Paste Redirected URL here:")
         if st.button("Save & Link TikTok"):
             if user_input:
                 code_to_use = user_input.strip()
-                # Auto extract code if user pasted full URL
                 if "code=" in code_to_use:
                     try:
                         parsed = urllib.parse.urlparse(code_to_use)
@@ -41,8 +43,9 @@ with st.sidebar:
                     except Exception:
                         pass
                 
-                success, msg = tiktok_uploader.exchange_code_for_token(code_to_use)
+                success, msg, token = tiktok_uploader.exchange_code_for_token(code_to_use)
                 if success:
+                    st.session_state["tiktok_access_token"] = token
                     st.success(msg)
                     st.rerun()
                 else:
