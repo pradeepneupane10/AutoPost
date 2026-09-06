@@ -1,7 +1,6 @@
 import os, sys, json, re, subprocess, shutil
 from dotenv import load_dotenv
 from google import genai
-from youtube_transcript_api import YouTubeTranscriptApi
 import yt_dlp
 
 sys.stdout.reconfigure(encoding='utf-8')
@@ -12,10 +11,21 @@ CLIPS_DIR = os.path.join(BASE_DIR, "clips")
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
 os.makedirs(CLIPS_DIR, exist_ok=True)
 
-if shutil.which("ffmpeg"):
-    FFMPEG_BIN = "ffmpeg"
-else:
-    FFMPEG_BIN = r"C:\Users\om prakash\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-9.0.1-full_build\bin\ffmpeg.exe"
+# Detect FFmpeg executable across all environments (Cloud Linux, Windows, or imageio-ffmpeg fallback)
+def get_ffmpeg_binary():
+    if shutil.which("ffmpeg"):
+        return "ffmpeg"
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        pass
+    local_win = r"C:\Users\om prakash\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-9.0.1-full_build\bin\ffmpeg.exe"
+    if os.path.exists(local_win):
+        return local_win
+    return "ffmpeg"
+
+FFMPEG_BIN = get_ffmpeg_binary()
 
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
@@ -41,8 +51,7 @@ def extract_video_id(url):
     return match.group(1)
 
 def analyze_best_clip_direct_gemini(url):
-    """Directly asks Gemini to watch and analyze the YouTube video URL without getting IP blocked!"""
-    print(f"[*] Asking Gemini Multimodal AI to watch and analyze YouTube video directly...")
+    print(f"[*] Asking Gemini Multimodal AI to watch and analyze YouTube video...")
     client = get_client()
     
     prompt = """
@@ -81,7 +90,7 @@ Return strictly a JSON object with this exact structure (no markdown fences, pur
     
     clip_meta = json.loads(raw)
     print(f"[+] Best Clip Selected by Gemini: {clip_meta['title']}")
-    print(f"    Time: {clip_meta['start_time']}s -> {clip_meta['end_time']}s (Duration: {clip_meta['end_time'] - clip_meta['start_time']:.1f}s)")
+    print(f"    Time: {clip_meta['start_time']}s -> {clip_meta['end_time']}s")
     return clip_meta
 
 def download_video(url, video_id):
@@ -91,11 +100,12 @@ def download_video(url, video_id):
         return output_path
 
     print(f"[*] Downloading video: {url}...")
+    ffmpeg_exec = get_ffmpeg_binary()
     ydl_opts = {
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'outtmpl': os.path.join(DOWNLOADS_DIR, f"{video_id}.%(ext)s"),
         'merge_output_format': 'mp4',
-        'ffmpeg_location': FFMPEG_BIN,
+        'ffmpeg_location': ffmpeg_exec,
         'quiet': True,
         'no_warnings': True
     }
@@ -106,6 +116,7 @@ def download_video(url, video_id):
 
 def cut_and_convert_to_vertical(input_video, start_time, duration, output_path):
     print(f"[*] Cutting & converting video to 9:16 Vertical Short...")
+    ffmpeg_exec = get_ffmpeg_binary()
     filter_complex = (
         "[0:v]split=2[bg][fg];"
         "[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:5[bg_blur];"
@@ -113,7 +124,7 @@ def cut_and_convert_to_vertical(input_video, start_time, duration, output_path):
         "[bg_blur][fg_scaled]overlay=(W-w)/2:(H-h)/2[outv]"
     )
     cmd = [
-        FFMPEG_BIN,
+        ffmpeg_exec,
         "-y",
         "-ss", str(start_time),
         "-t", str(duration),
@@ -131,8 +142,6 @@ def cut_and_convert_to_vertical(input_video, start_time, duration, output_path):
 
 def main(url):
     video_id = extract_video_id(url)
-    
-    # Analyze video directly with Gemini AI (bypasses YouTube IP blocking completely!)
     clip_info = analyze_best_clip_direct_gemini(url)
     
     start_time = float(clip_info['start_time'])
