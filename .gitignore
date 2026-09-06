@@ -1,0 +1,7 @@
+.env
+downloads/
+clips/
+tiktok_tokens.json
+__pycache__/
+*.part
+*.ytdl
