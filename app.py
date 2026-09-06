@@ -1,5 +1,5 @@
 import streamlit as st
-import os, glob, json, subprocess
+import os, glob, json, subprocess, urllib.parse
 from generator import main as generate_clip
 import tiktok_uploader
 
@@ -25,19 +25,30 @@ with st.sidebar:
         st.warning("⚠️ TikTok not linked yet.")
         auth_url = tiktok_uploader.get_auth_url()
         st.markdown(f"[👉 **Click here to Authorize TikTok**]({auth_url})")
-        st.info("After authorizing, you will be redirected to an address like: `https://example.com/callback?code=XXXXX`\n\nCopy the `code=` value from your browser URL bar and paste it below:")
+        st.info("After authorizing, you will be redirected to an address starting with:\n`https://example.com/callback?code=...`\n\n**Paste the FULL redirected URL** below:")
         
-        auth_code = st.text_input("Paste TikTok Authorization Code:")
+        user_input = st.text_input("Paste Redirected URL or Code:")
         if st.button("Save & Link TikTok"):
-            if auth_code:
-                success, msg = tiktok_uploader.exchange_code_for_token(auth_code)
+            if user_input:
+                code_to_use = user_input.strip()
+                # Auto extract code if user pasted full URL
+                if "code=" in code_to_use:
+                    try:
+                        parsed = urllib.parse.urlparse(code_to_use)
+                        qs = urllib.parse.parse_qs(parsed.query)
+                        if "code" in qs:
+                            code_to_use = qs["code"][0]
+                    except Exception:
+                        pass
+                
+                success, msg = tiktok_uploader.exchange_code_for_token(code_to_use)
                 if success:
                     st.success(msg)
                     st.rerun()
                 else:
                     st.error(msg)
             else:
-                st.error("Please paste the code!")
+                st.error("Please paste the redirected link!")
 
 # --- MAIN PAGE ---
 col1, col2 = st.columns([1, 1])
