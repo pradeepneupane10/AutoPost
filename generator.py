@@ -12,19 +12,26 @@ CLIPS_DIR = os.path.join(BASE_DIR, "clips")
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
 os.makedirs(CLIPS_DIR, exist_ok=True)
 
-# Detect FFmpeg path (Cloud Linux 'ffmpeg' vs Local Windows path)
 if shutil.which("ffmpeg"):
     FFMPEG_BIN = "ffmpeg"
 else:
     FFMPEG_BIN = r"C:\Users\om prakash\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-9.0.1-full_build\bin\ffmpeg.exe"
 
 load_dotenv(os.path.join(BASE_DIR, ".env"))
-api_key = os.getenv("GEMINI_API_KEY")
+
+def get_secret(key, default=None):
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass
+    return os.getenv(key, default)
 
 def get_client():
-    key = os.getenv("GEMINI_API_KEY")
+    key = get_secret("GEMINI_API_KEY")
     if not key:
-        raise ValueError("GEMINI_API_KEY not found in environment!")
+        raise ValueError("GEMINI_API_KEY not found in environment or secrets!")
     return genai.Client(api_key=key)
 
 def extract_video_id(url):
